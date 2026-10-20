@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listLessons, loadLesson } from './lessons.js';
+import { readNotes, saveNote, listNotes } from './notes.js';
 import { runLesson, runSnippet } from './runner.js';
 import { appendEvent, readEvents, runPayload, lessonStats } from './history.js';
 import { buildProfile, profileMarkdown, writeProgress } from './profile.js';
@@ -16,6 +17,8 @@ const WORK = path.join(ROOT, 'data', 'work');
 const EVENTS = process.env.LEARN_EVENTS || path.join(ROOT, 'data', 'events.jsonl');
 const PROGRESS = process.env.LEARN_PROGRESS || path.join(ROOT, 'PROGRESS.md');
 const DATA = path.join(ROOT, 'data');
+// The learner's own notes, one Markdown file per lesson (gitignored: the repo may be public).
+const NOTES = process.env.LEARN_NOTES || path.join(ROOT, 'notes');
 
 // ANTHROPIC_API_KEY for the tutor lives in .env (gitignored); see .env.example.
 loadEnvFile(path.join(ROOT, '.env'));
@@ -117,6 +120,21 @@ async function handle(req, res) {
   if (req.method === 'POST' && p === '/api/snippet') {
     const { code = '' } = parseJson(await readBody(req));
     return send(res, 200, await runSnippet(String(code)));
+  }
+  if (req.method === 'GET' && p === '/api/notes') return send(res, 200, listNotes(NOTES));
+  const nm = /^\/api\/notes\/([^/]+)$/.exec(p);
+  if (nm) {
+    const lesson = loadLesson(LESSONS, decodeURIComponent(nm[1]));
+    if (!lesson) return send(res, 404, { error: 'No such lesson' });
+    if (req.method === 'GET') return send(res, 200, { notes: readNotes(NOTES, lesson.slug).notes });
+    if (req.method === 'PUT') {
+      try {
+        return send(res, 200, { notes: saveNote(NOTES, lesson.slug, lesson.meta.title, parseJson(await readBody(req))).notes });
+      } catch (err) {
+        return send(res, err.status || 400, { error: err.message });
+      }
+    }
+    return send(res, 405, { error: 'Method not allowed' });
   }
   if (req.method === 'GET' && p === '/api/history') {
     const events = readEvents(EVENTS).filter(e => e.kind !== 'lesson_open').slice(-300).reverse();

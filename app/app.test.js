@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseFrontMatter, listLessons, loadLesson } from './lessons.js';
@@ -233,4 +234,34 @@ test('every anatomy block points at real code, in order, and explains each part'
   }
   assert.deepEqual(anatomyProblems({ code: 'fn main() {}', parts: [{ text: 'main', kind: 'name', say: 'x' }, { text: 'fn', kind: 'keyword', say: 'y' }] }),
     ['part 2 ("fn") is not in the code after the previous part']);
+});
+
+test('notes: the shared example parses and writes back byte for byte (learn-rust checks the same files)', async () => {
+  const { parseNotes, formatNotes } = await import('./notes.js');
+  const fixtures = path.resolve(LESSONS, '..', 'docs', 'fixtures');
+  const text = fs.readFileSync(path.join(fixtures, 'notes-example.md'), 'utf8');
+  const parsed = parseNotes(text);
+  assert.deepEqual(parsed, JSON.parse(fs.readFileSync(path.join(fixtures, 'notes-example.json'), 'utf8')));
+  assert.equal(formatNotes(parsed), text);
+});
+
+test('notes: save, replace in place, delete with empty text, list', async () => {
+  const { saveNote, readNotes, listNotes } = await import('./notes.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'learn-notes-'));
+  try {
+    saveNote(dir, '01-x', 'Lesson X', { anchor: 'idea', label: 'The idea', text: 'first' }, 'T1');
+    saveNote(dir, '01-x', 'Lesson X', { anchor: 'token:println!', label: '`println!`', text: 'a macro\n\nline two' }, 'T2');
+    saveNote(dir, '01-x', 'Lesson X', { anchor: 'idea', label: 'The idea', text: '  changed  ' }, 'T3');
+    assert.deepEqual(readNotes(dir, '01-x').notes, [
+      { anchor: 'idea', label: 'The idea', text: 'changed', at: 'T3' },
+      { anchor: 'token:println!', label: '`println!`', text: 'a macro\n\nline two', at: 'T2' },
+    ]);
+    assert.deepEqual(listNotes(dir).map(n => [n.slug, n.title, n.notes.length]), [['01-x', 'Lesson X', 2]]);
+    saveNote(dir, '01-x', 'Lesson X', { anchor: 'idea', text: '' });
+    saveNote(dir, '01-x', 'Lesson X', { anchor: 'token:println!', text: ' ' });
+    assert.equal(fs.existsSync(path.join(dir, '01-x.md')), false, 'no notes left: no file');
+    assert.throws(() => saveNote(dir, '01-x', 'X', { anchor: 'bad-->anchor', text: 'x' }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -6,3 +6,6 @@ data/
 *.log
 .DS_Store
 coverage/
+# Your own notes on the lessons. Kept out of git because this repo is public;
+# delete this line if you want them versioned (and the repo is private).
+notes/
